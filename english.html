@@ -1041,7 +1041,34 @@ function stuHTML(s){
   <div class="sig"><span>المعلم: ${esc(DB.settings.teacher||'....................')}</span><span>ولي الأمر: ....................</span></div></div>`;
 }
 
-function build(){const s=S.find(x=>x.id===sel);if(pk==='notes')return{h:notesHTML(),land:false,name:'تقرير_ملاحظات_'+safeName(curC().name)};if(pk==='student'&&s)return{h:stuHTML(s),land:false,name:'تقرير_'+safeName(s.name)};return{h:classHTML(),land:true,name:'كشف_درجات_'+safeName(curC().name)}}
+/* تقسيم جدول الكشف على الصفحات بالقياس الفعلي: لا يُقطع أي صف (اسم) بين ورقتين.
+   الصفحة الأولى فيها الترويسة، وتتكرر رأس الجدول في كل صفحة، والتوقيع في الأخيرة. */
+function splitRows(h,c1,c2,botH){const n=h.length,tot=h.reduce((a,b)=>a+b,0);
+ const cap=(k,j)=>k==1?c1-botH:(j==0?c1:(j==k-1?c2-botH:c2));
+ const fit=(k,L)=>{const ch=[];let i=0;for(let j=0;j<k;j++){const c=Math.min(L,cap(k,j));let t=0;const s0=i;while(i<n&&t+h[i]<=c){t+=h[i];i++}ch.push([s0,i])}return i>=n?ch:null};
+ for(let k=1;k<=n;k++){const hi0=Math.max(c1,c2);let best=fit(k,hi0);if(!best)continue;let lo=tot/k,hi=hi0;
+  for(let it=0;it<24;it++){const m=(lo+hi)/2,t=fit(k,m);if(t){best=t;hi=m}else lo=m}
+  return best.filter(c=>c[1]>c[0])}
+ return h.map((_,i)=>[i,i+1])}
+function paginateCL(html){let fr=null;try{
+ const PW=1000,PH=680;/* A4 أفقي: نقيس بعرض أضيق قليلًا (1000px) ونترك هامش ارتفاع (680px من 733px) تحسبًا لهوامش الطابعة في تطبيقي الآيفون والأندرويد */
+ fr=document.createElement('iframe');fr.style.cssText='position:fixed;left:-20000px;top:0;width:'+PW+'px;height:900px;border:0;visibility:hidden';document.body.appendChild(fr);
+ const d=fr.contentDocument;d.open();d.write('<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><style>body{margin:0;padding:0;background:#fff}</style>'+sty(true)+'</head><body><div id="pt" style="display:block">'+html+'</div></body></html>');d.close();
+ const root=d.getElementById('pt'),out=[];let changed=false;
+ [...root.children].forEach(el=>{
+  if(el.classList.contains('pb'))return;
+  const tbl=el.classList.contains('rp')&&el.classList.contains('cl')?el.querySelector('table'):null,tb=tbl&&tbl.tBodies[0];
+  if(!tb||tb.rows.length<2){out.push(el.outerHTML);return}
+  const R=x=>x.getBoundingClientRect(),eb=R(el),tr=R(tbl),topH=tr.top-eb.top,botH=eb.bottom-tr.bottom,thH=R(tbl.tHead).height;
+  const hs=[...tb.rows].map(r=>R(r).height),ch=splitRows(hs,PH-topH-thH,PH-thH,botH);
+  if(ch.length<2){out.push(el.outerHTML);return}
+  changed=true;
+  ch.forEach((c,j)=>{const cl=el.cloneNode(true),t=cl.querySelector('table');[...cl.querySelector('tbody').rows].forEach((r,i)=>{if(i<c[0]||i>=c[1])r.remove()});
+   if(j>0)while(cl.firstElementChild&&cl.firstElementChild!==t)cl.removeChild(cl.firstElementChild);
+   if(j<ch.length-1)cl.querySelectorAll('.sig,.page-footer').forEach(x=>x.remove());
+   out.push(cl.outerHTML)})});
+ return changed?out.join('<div class="pb"></div>'):html}catch(e){return html}finally{if(fr&&fr.parentNode)fr.parentNode.removeChild(fr)}}
+function build(){const s=S.find(x=>x.id===sel);if(pk==='notes')return{h:notesHTML(),land:false,name:'تقرير_ملاحظات_'+safeName(curC().name)};if(pk==='student'&&s)return{h:stuHTML(s),land:false,name:'تقرير_'+safeName(s.name)};return{h:paginateCL(classHTML()),land:true,name:'كشف_درجات_'+safeName(curC().name)}}
 const sty=land=>`<style>@page{size:A4 ${land?'landscape':'portrait'};margin:8mm}${RC}</style>`;
 function fullDoc(b,auto){return `<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${b.name}</title><style>body{margin:0;padding:12px;background:#fff}</style></head><body><div id="pt" style="display:block">${sty(b.land)}${b.h}</div>${auto?'<script>window.onload=function(){setTimeout(function(){window.print()},500)}<\/script>':''}</body></html>`}
 function tryIframePrint(html){return new Promise(res=>{
